@@ -48,6 +48,7 @@
 #include <asm/vmx.h>
 #include <asm/kvm_page_track.h>
 #include "trace.h"
+#include <linux/tlbsplit.h>
 
 /*
  * When setting this variable to true it enables Two-Dimensional-Paging
@@ -406,7 +407,7 @@ static int is_nx(struct kvm_vcpu *vcpu)
 
 static int is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte);
+	return ((pte != 0) && !is_mmio_spte(pte)) || COULD_BE_SPLIT_PAGE(pte);
 }
 
 static int is_large_pte(u64 pte)
@@ -1320,7 +1321,10 @@ static u64 *rmap_get_first(struct kvm_rmap_head *rmap_head,
 	iter->pos = 0;
 	sptep = iter->desc->sptes[iter->pos];
 out:
-	BUG_ON(!is_shadow_present_pte(*sptep));
+    if (!is_shadow_present_pte(*sptep)) {
+		printk(KERN_WARNING "rmap_get_first: BUGGING ON spte=0x%llx/0x%llx\n",*sptep,(u64)sptep);
+		BUG_ON(1);
+    }
 	return sptep;
 }
 
@@ -1363,6 +1367,11 @@ out:
 
 static void drop_spte(struct kvm *kvm, u64 *sptep)
 {
+	if (COULD_BE_SPLIT_PAGE(*sptep)) {
+	   //tlbs debug
+		printk(KERN_WARNING "drop_spte: got something that looks like split page in setter spte:0x%llx checkerfunc:%d\n",*sptep,split_tlb_has_split_page(kvm,sptep));
+		WARN_ON(1);
+	}
 	if (mmu_spte_clear_track_bits(sptep))
 		rmap_remove(kvm, sptep);
 }
@@ -1616,6 +1625,9 @@ static bool kvm_zap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head)
 	bool flush = false;
 
 	while ((sptep = rmap_get_first(rmap_head, &iter))) {
+		if (COULD_BE_SPLIT_PAGE(*sptep) && split_tlb_has_split_page(kvm,sptep)) { 		//tlbsplit
+			printk(KERN_WARNING "kvm_zap_rmapp: zapping split page 0x%llx\n",*sptep); 	//tlbsplit
+		}											//tlbsplit
 		rmap_printk("%s: spte %p %llx.\n", __func__, sptep, *sptep);
 
 		drop_spte(kvm, sptep);
@@ -2493,6 +2505,11 @@ static bool mmu_page_zap_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
 	u64 pte;
 	struct kvm_mmu_page *child;
 
+	if (COULD_BE_SPLIT_PAGE(*spte)&&split_tlb_has_split_page(kvm,spte)) {
+		printk(KERN_WARNING "mmu_page_zap_pte: zapping split page, restored it to 0x%llx vm:%x\n", *spte,kvm->splitpages->vmcounter);
+		WARN_ON(1);
+	}
+
 	pte = *spte;
 	if (is_shadow_present_pte(pte)) {
 		if (is_last_spte(pte, sp->role.level)) {
@@ -2734,6 +2751,15 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 	int ret = 0;
 	struct kvm_mmu_page *sp;
 
+
+	struct kvm_splitpage* page = split_tlb_findpage(vcpu->kvm, gfn<<PAGE_SHIFT);
+
+	if (COULD_BE_SPLIT_PAGE(*sptep)) {
+	   //tlbs debug
+		printk(KERN_WARNING "set_spte: got something that looks like active split page in setter spte:0x%llx/0x%llx\n",*sptep,(u64)sptep);
+		WARN_ON(1);
+	}
+
 	if (set_mmio_spte(vcpu, sptep, gfn, pfn, pte_access))
 		return 0;
 
@@ -2816,6 +2842,12 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 		spte = mark_spte_for_access_track(spte);
 
 set_pte:
+	if (page&&page->active) {
+		printk(KERN_WARNING "set_spte: adjusting spte to no permissions and saving it on the page descriptor :0x%llx vm:%x\n",spte, vcpu->kvm->splitpages->vmcounter);
+		WARN_ON(1);
+		page->original_spte = spte;
+		spte&=~(VMX_EPT_WRITABLE_MASK|VMX_EPT_READABLE_MASK|VMX_EPT_EXECUTABLE_MASK);
+	}
 	if (mmu_spte_update(sptep, spte))
 		kvm_flush_remote_tlbs(vcpu->kvm);
 done:
@@ -2832,6 +2864,12 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, u64 *sptep, unsigned pte_access,
 
 	pgprintk("%s: spte %llx write_fault %d gfn %llx\n", __func__,
 		 *sptep, write_fault, gfn);
+
+	if (COULD_BE_SPLIT_PAGE(*sptep)) {
+	   //tlbs debug
+		printk(KERN_WARNING "mmu_set_spte: got something that looks like split page in setter spte:0x%llx\n",*sptep);
+		WARN_ON(1);
+	}
 
 	if (is_shadow_present_pte(*sptep)) {
 		/*
@@ -2965,6 +3003,36 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 		return;
 
 	__direct_pte_prefetch(vcpu, sp, sptep);
+}
+
+u64* split_tlb_findspte(struct kvm_vcpu *vcpu,gfn_t gfn, int callback(u64* sptep, int level, int last, int large)) {
+
+	struct kvm_shadow_walk_iterator iterator;
+	
+	for_each_shadow_entry(vcpu, gfn << PAGE_SHIFT, iterator) {
+		if (iterator.sptep!=NULL) {
+			int last = is_last_spte(*iterator.sptep, iterator.level);
+			int large = is_large_pte(*iterator.sptep);
+			if (callback(iterator.sptep, iterator.level, last, large))
+				return iterator.sptep;
+		}
+/*
+		if (last && !large) {
+			return iterator.sptep;
+		}
+		if (last && large) {
+			struct kvm_memory_slot *slot;	
+			printk(KERN_WARNING "Large page found for 0x%llx spte:0x%llx level:%d\n",gfn << PAGE_SHIFT,*iterator.sptep,iterator.level);
+			//return NULL;
+			slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+			kvm_mmu_gfn_disallow_lpage(slot, gfn);
+                        //drop_large_spte(vcpu,iterator.sptep);
+			last = is_last_spte(*iterator.sptep, iterator.level);
+			printk(KERN_WARNING "For page 0x%llx spte:0x%llx level:%d last:%d\n",gfn << PAGE_SHIFT,*iterator.sptep,iterator.level,last);
+		}
+*/
+	}
+	return NULL;
 }
 
 static int __direct_map(struct kvm_vcpu *vcpu, int write, int map_writable,

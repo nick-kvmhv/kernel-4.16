@@ -36,6 +36,8 @@
 
 #include <asm/kvm_host.h>
 
+#include "tlbsplit.h"
+
 #ifndef KVM_MAX_VCPU_ID
 #define KVM_MAX_VCPU_ID KVM_MAX_VCPUS
 #endif
@@ -274,6 +276,7 @@ struct kvm_vcpu {
 	bool preempted;
 	struct kvm_vcpu_arch arch;
 	struct dentry *debugfs_dentry;
+	struct kvm_tlbsplit_pervcpu split_pervcpu;
 };
 
 static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
@@ -391,6 +394,7 @@ struct kvm {
 	struct mutex slots_lock;
 	struct mm_struct *mm; /* userspace tied to this vm */
 	struct kvm_memslots __rcu *memslots[KVM_ADDRESS_SPACE_NUM];
+	struct kvm_splitpages *splitpages; //splittlb
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
 
 	/*

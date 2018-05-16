@@ -50,6 +50,9 @@
 #include <asm/kexec.h>
 #include <asm/apic.h>
 #include <asm/irq_remapping.h>
+
+#include <linux/tlbsplit.h>
+
 #include <asm/mmu_context.h>
 #include <asm/microcode.h>
 #include <asm/nospec-branch.h>
@@ -6564,6 +6567,9 @@ static int handle_halt(struct kvm_vcpu *vcpu)
 
 static int handle_vmcall(struct kvm_vcpu *vcpu)
 {
+	if (split_tlb_vmcall_dispatch(vcpu)) {
+		return 1;
+	}
 	return kvm_emulate_hypercall(vcpu);
 }
 
@@ -6729,6 +6735,7 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	unsigned long exit_qualification;
 	gpa_t gpa;
 	u64 error_code;
+        int splitresult;
 
 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
 
@@ -6765,7 +6772,11 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	       PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
 
 	vcpu->arch.exit_qualification = exit_qualification;
-	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
+
+	if (split_tlb_handle_ept_violation(vcpu,gpa,exit_qualification,&splitresult))
+		return splitresult;
+	else
+		return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }
 
 static int handle_ept_misconfig(struct kvm_vcpu *vcpu)
