@@ -407,7 +407,7 @@ static int is_nx(struct kvm_vcpu *vcpu)
 
 static int is_shadow_present_pte(u64 pte)
 {
-	return ((pte != 0) && !is_mmio_spte(pte)) || COULD_BE_SPLIT_PAGE(pte);
+	return ((pte != 0) && !is_mmio_spte(pte)) /*|| COULD_BE_SPLIT_PAGE(pte)*/;
 }
 
 static int is_large_pte(u64 pte)
