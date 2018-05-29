@@ -1061,14 +1061,14 @@ static int emulate_mode = 0xFFFF;
 				if (exit_qualification & PTE_READ) {
 					if ( ( exec_when_last_read == vcpu->split_pervcpu.last_exec_count ) || exit_on_same_addr ) 
 						emulate_now = 1;
-					else
-					    printk(KERN_INFO "split_tlb_handle_ept_violation: not emulating because last_exec_count went from %d to %d",exec_when_last_read,vcpu->split_pervcpu.last_exec_count);
+					/*else
+					    printk(KERN_INFO "split_tlb_handle_ept_violation: not emulating because last_exec_count went from %d to %d",exec_when_last_read,vcpu->split_pervcpu.last_exec_count);*/
 				}
 				if (exit_qualification & PTE_EXECUTE) {
 					if ( ( read_when_last_exec == vcpu->split_pervcpu.last_read_count ) || exit_on_same_addr) 
 						emulate_now = 1;
-					else
-					    printk(KERN_INFO "split_tlb_handle_ept_violation: not emulating because last_read_count went from %d to %d",read_when_last_exec,vcpu->split_pervcpu.last_read_count);
+					/*else
+					    printk(KERN_INFO "split_tlb_handle_ept_violation: not emulating because last_read_count went from %d to %d",read_when_last_exec,vcpu->split_pervcpu.last_read_count);*/
 				}
 			}
 			if (tlbsplit_emulate_on_violation || emulate_now) {
