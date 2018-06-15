@@ -394,17 +394,22 @@ int split_tlb_restore_spte(struct kvm_vcpu *vcpu,gfn_t gfn,struct kvm_splitpage*
 	hpa_t stepaddr = ts_gfn_to_pfa(vcpu,gfn) ;
 	spin_lock(&vcpu->kvm->mmu_lock);
 	sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback);
-	if (( page->original_spte & PT64_BASE_ADDR_MASK ) == 0) {
-		printk(KERN_WARNING "split_tlb_restore_spte: page faulted at 0, restoring it to zero and falling back:0%llx\n", gfn<<PAGE_SHIFT);
-		*sptep = 0; 
-		result = 0;
-	} else {
-		if (sptep!=NULL && *sptep==0) {
-			spin_unlock(&vcpu->kvm->mmu_lock);
-			printk(KERN_WARNING "split_tlb_restore_spte: zero spte, falling back to default handler gpa:0%llx\n", gfn<<PAGE_SHIFT);
-			return 0;
+	if (page->active) {
+		if (( page->original_spte & PT64_BASE_ADDR_MASK ) == 0) {
+			printk(KERN_WARNING "split_tlb_restore_spte: page faulted at 0, restoring it to zero and falling back:0%llx\n", gfn<<PAGE_SHIFT);
+			*sptep = 0; 
+			result = 0;
+		} else {
+			if (sptep!=NULL && *sptep==0) {
+				spin_unlock(&vcpu->kvm->mmu_lock);
+				printk(KERN_WARNING "split_tlb_restore_spte: zero spte, falling back to default handler gpa:0%llx\n", gfn<<PAGE_SHIFT);
+				return 0;
+			}
+			result = split_tlb_restore_spte_atomic(vcpu->kvm,gfn,sptep,stepaddr);
 		}
-		result = split_tlb_restore_spte_atomic(vcpu->kvm,gfn,sptep,stepaddr);
+	} else {
+		printk(KERN_WARNING "split_tlb_restore_spte: hit inactive page gpa:0%llx\n", gfn<<PAGE_SHIFT);
+		result = 1;
 	}
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	return result;
