@@ -395,6 +395,7 @@ int split_tlb_restore_spte(struct kvm_vcpu *vcpu,gfn_t gfn,struct kvm_splitpage*
 	spin_lock(&vcpu->kvm->mmu_lock);
 	sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback);
 	if (page->active) {
+		page->active = false;
 		if (( page->original_spte & PT64_BASE_ADDR_MASK ) == 0) {
 			printk(KERN_WARNING "split_tlb_restore_spte: page faulted at 0, restoring it to zero and falling back:0%llx\n", gfn<<PAGE_SHIFT);
 			*sptep = 0; 
