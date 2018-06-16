@@ -1091,7 +1091,7 @@ static int emulate_mode = 0xFFFF;
 						printk(KERN_INFO "split_tlb_handle_ept_violation: emulation stuck r0x%lx/x0x%lx/x0x%lx qualification: 0x%lx count: %d. injecting bypass vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
 						inject_retn_bypass(vcpu,(unsigned char *)splitpage->codepage);
 					} else {
-						printk(KERN_INFO "split_tlb_handle_ept_violation: emulation successful r0x%lx/x0x%lx/x0x%lx->x0x%lx qualification: 0x%lx count: 0x%d vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,rip_after,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
+						//printk(KERN_INFO "split_tlb_handle_ept_violation: emulation successful r0x%lx/x0x%lx/x0x%lx->x0x%lx qualification: 0x%lx count: 0x%d vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,rip_after,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
 						vcpu->split_pervcpu.last_exec_count = 0;
 						vcpu->split_pervcpu.last_read_count = 0;
 					}
