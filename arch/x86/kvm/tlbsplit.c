@@ -708,19 +708,21 @@ int split_tlb_flip_page(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_splitpage* 
 
 	if (exit_qualification & PTE_WRITE) //write
 	{
-		//int rc;
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx. detourpa:0x%llx rip:0x%lx vcpuid:%d Removing the page\n",gpa,dataaddrphys,rip,vcpu->vcpu_id);
 		if (split_tlb_restore_spte(vcpu,gfn,splitpage)==0)
 			return 0;
-		//rc = kvm_write_guest(vcpu->kvm,gpa&PAGE_MASK,splitpage->dataaddr,4096);
 		kvm_split_tlb_freepage(splitpage);
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx, page removed\n",gpa);
 	} else if (exit_qualification & PTE_READ) //read
 	{
 		u64* sptep;
-		//hpa_t stepaddr = ts_gfn_to_pfa(vcpu,gfn);
 		log_read_flip(vcpu,rip);
 		spin_lock(&vcpu->kvm->mmu_lock);
+		if (!splitpage->active) {
+		    printk(KERN_WARNING "split_tlb_flip_page: READ EPT page became inactive 0x%llx, falling back\n",gpa);
+			spin_unlock(&vcpu->kvm->mmu_lock);
+		    return 0;
+		}
 		sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback);
 		if (exit_qualification & PTE_EXECUTE) //TODO handle execute&read, not sure if needed
 			{
@@ -761,16 +763,15 @@ int split_tlb_flip_page(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_splitpage* 
 			vcpu->split_pervcpu.last_read_count = 0;
 			vcpu->split_pervcpu.flip_tick = now_tick;
 		}
-		/*if (rip!=vcpu->split_pervcpu.last_exec_rip) {
-			vcpu->split_pervcpu.last_exec_count =0;
-		}*/
 	} else if (exit_qualification & PTE_EXECUTE) //execute
 	{
 		u64* sptep;
-		//hpa_t stepaddr = ts_gfn_to_pfa(vcpu,gfn);
-//		if (async || !writable)
-//			printk(KERN_WARNING "split_tlb_flip_page: unexpected async:%d writable%d\n", async, writable);
 		spin_lock(&vcpu->kvm->mmu_lock);
+		if (!splitpage->active) {
+		    printk(KERN_WARNING "split_tlb_flip_page: EXEC EPT page became inactive 0x%llx, falling back\n",gpa);
+			spin_unlock(&vcpu->kvm->mmu_lock);
+		    return 0;
+		}
 		sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback);
 		if (sptep!=NULL) {
 			u64 newspte = *sptep;
@@ -806,9 +807,6 @@ int split_tlb_flip_page(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_splitpage* 
 			vcpu->split_pervcpu.last_exec_count = 0;
 			vcpu->split_pervcpu.flip_tick = now_tick;
 		}
-		/*if (rip!=vcpu->split_pervcpu.last_read_rip) {
-			vcpu->split_pervcpu.last_read_count =0;
-		}*/
 	} else
 		printk(KERN_ERR "split_tlb_flip_page: unexpected EPT fault at 0x%llx \n",gpa);
 	return 1;
