@@ -246,6 +246,7 @@ int split_tlb_activatepage(struct kvm_vcpu *vcpu, gva_t gva, ulong cr3) {
 	struct kvm_splitpage* page;
 	struct x86_exception exception;
 	u64* sptep;
+	int result = 0;
 	//struct kvm_shadow_walk_iterator iterator;
 	gfn_t gfn;
 
@@ -267,6 +268,7 @@ int split_tlb_activatepage(struct kvm_vcpu *vcpu, gva_t gva, ulong cr3) {
 	}
 
 	gfn = gpa >> PAGE_SHIFT;
+	spin_lock(&vcpu->kvm->mmu_lock);
 	sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback);
 	if (sptep!=NULL) {
 		u64 newspte = *sptep & ~(VMX_EPT_READABLE_MASK|VMX_EPT_WRITABLE_MASK);
@@ -278,12 +280,13 @@ int split_tlb_activatepage(struct kvm_vcpu *vcpu, gva_t gva, ulong cr3) {
         	*sptep = newspte;
         	page->active = true;
 		kvm_flush_remote_tlbs(vcpu->kvm);
-		return 1;
+		result = 1;
 	} else {
 		printk(KERN_WARNING "split_tlb_activatepage: spte not found 0x%llx\n",gpa);
 		sptep = split_tlb_findspte(vcpu,gfn,split_tlb_findspte_callback_print);
 	}
-	return 0;
+	spin_unlock(&vcpu->kvm->mmu_lock);
+	return result;
 }
 //EXPORT_SYMBOL_GPL(split_tlb_activatepage);
 
