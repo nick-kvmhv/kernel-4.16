@@ -1089,8 +1089,14 @@ static int emulate_mode = 0xFFFF;
 				if (er==EMULATE_DONE) {
 					unsigned long rip_after = kvm_rip_read(vcpu);
 					if (rip_before == rip_after) {
-						printk(KERN_INFO "split_tlb_handle_ept_violation: emulation stuck r0x%lx/x0x%lx/x0x%lx qualification: 0x%lx count: %d. injecting bypass vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
-						inject_retn_bypass(vcpu,(unsigned char *)splitpage->codepage);
+						spin_lock(&vcpu->kvm->mmu_lock);
+						splitpage = split_tlb_findpage(vcpu->kvm,gpa);
+						if (splitpage && splitpage->codepage) {
+						    printk(KERN_INFO "split_tlb_handle_ept_violation: emulation stuck r0x%lx/x0x%lx/x0x%lx qualification: 0x%lx count: %d. injecting bypass vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
+						    inject_retn_bypass(vcpu,(unsigned char *)splitpage->codepage);
+						} else 
+						    printk(KERN_INFO "split_tlb_handle_ept_violation: emulation stuck r0x%lx/x0x%lx/x0x%lx qualification: 0x%lx count: %d. page deactivated when injecting bypass vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
+						spin_unlock(&vcpu->kvm->mmu_lock);
 					} else {
 						//printk(KERN_INFO "split_tlb_handle_ept_violation: emulation successful r0x%lx/x0x%lx/x0x%lx->x0x%lx qualification: 0x%lx count: 0x%d vm:0x%x\n",vcpu->split_pervcpu.last_read_rip,vcpu->split_pervcpu.last_exec_rip,rip_before,rip_after,exit_qualification,thrashed,vcpu->kvm->splitpages->vmcounter);
 						vcpu->split_pervcpu.last_exec_count = 0;
