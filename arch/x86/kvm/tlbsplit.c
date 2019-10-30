@@ -712,9 +712,13 @@ int split_tlb_flip_page(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_splitpage* 
 	if (exit_qualification & PTE_WRITE) //write
 	{
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx. detourpa:0x%llx rip:0x%lx vcpuid:%d Removing the page\n",gpa,dataaddrphys,rip,vcpu->vcpu_id);
-		if (split_tlb_restore_spte(vcpu,gfn,splitpage)==0)
+		spin_lock(&vcpu->kvm->mmu_lock);
+		if (split_tlb_restore_spte(vcpu,gfn,splitpage)==0) {
+			spin_unlock(&vcpu->kvm->mmu_lock);
 			return 0;
+		}
 		kvm_split_tlb_freepage(splitpage);
+		spin_unlock(&vcpu->kvm->mmu_lock);
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx, page removed\n",gpa);
 	} else if (exit_qualification & PTE_READ) //read
 	{
@@ -1000,6 +1004,13 @@ int split_tlb_vmcall_dispatch(struct kvm_vcpu *vcpu)
 			return 1;
 			}
 		break;
+		case 0x1003: {
+			struct x86_exception exception;
+			u32 access = (kvm_x86_ops->get_cpl(vcpu) == 3) ? PFERR_USER_MASK : 0;
+		    gpa_t from_gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, rdx, access, &exception);	
+		    kvm_register_write(vcpu, VCPU_REGS_RAX, from_gpa);
+			}
+			break;
 		default:
 			result = 0;
 			printk(KERN_WARNING "VMCALL: invalid operation 0x%lx \n",rcx);
