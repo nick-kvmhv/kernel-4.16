@@ -405,9 +405,10 @@ int split_tlb_restore_spte(struct kvm_vcpu *vcpu,gfn_t gfn,struct kvm_splitpage*
 			result = 0;
 		} else {
 			if (sptep!=NULL && *sptep==0) {
-				spin_unlock(&vcpu->kvm->mmu_lock);
+//				spin_unlock(&vcpu->kvm->mmu_lock);
 				printk(KERN_WARNING "split_tlb_restore_spte: zero spte, falling back to default handler gpa:0%llx\n", gfn<<PAGE_SHIFT);
-				return 0;
+				result = 0;
+				goto unlockexit;
 			}
 			result = split_tlb_restore_spte_atomic(vcpu->kvm,gfn,sptep,stepaddr);
 		}
@@ -415,6 +416,11 @@ int split_tlb_restore_spte(struct kvm_vcpu *vcpu,gfn_t gfn,struct kvm_splitpage*
 		printk(KERN_WARNING "split_tlb_restore_spte: hit inactive page gpa:0%llx\n", gfn<<PAGE_SHIFT);
 		result = 1;
 	}
+	
+unlockexit:	
+	
+	kvm_split_tlb_freepage(page);
+	
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	return result;
 }
@@ -455,7 +461,7 @@ int split_tlb_freepage_by_gpa(struct kvm_vcpu *vcpu, gpa_t gpa) {
 		} else {
 			printk(KERN_WARNING "split_tlb_freepage_by_gpa: inactive page cr3:0x%lx gva:0x%lx gpa:0x%llx\n",page->cr3,page->gva,page->gpa);
 		}
-		kvm_split_tlb_freepage(page);
+		//kvm_split_tlb_freepage(page);
 		return 1;
 	} else
 		printk(KERN_WARNING "split_tlb_freepage_by_gpa: page not found gpa:0x%llx\n",gpa);
@@ -712,13 +718,10 @@ int split_tlb_flip_page(struct kvm_vcpu *vcpu, gpa_t gpa, struct kvm_splitpage* 
 	if (exit_qualification & PTE_WRITE) //write
 	{
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx. detourpa:0x%llx rip:0x%lx vcpuid:%d Removing the page\n",gpa,dataaddrphys,rip,vcpu->vcpu_id);
-		spin_lock(&vcpu->kvm->mmu_lock);
 		if (split_tlb_restore_spte(vcpu,gfn,splitpage)==0) {
-			spin_unlock(&vcpu->kvm->mmu_lock);
 			return 0;
 		}
-		kvm_split_tlb_freepage(splitpage);
-		spin_unlock(&vcpu->kvm->mmu_lock);
+		//kvm_split_tlb_freepage(splitpage);
 		printk(KERN_WARNING "split_tlb_flip_page: WRITE EPT fault at 0x%llx, page removed\n",gpa);
 	} else if (exit_qualification & PTE_READ) //read
 	{
@@ -831,9 +834,9 @@ int deactivateAllPages(struct kvm_vcpu *vcpu) {
 				printk(KERN_WARNING "deactivateAllPages: split_tlb_freepage failed for gva=%lx/gpa=%llx attempting to fix and free it based on saved gpa\n",gva,gpa);
 				split_tlb_restore_spte(vcpu,gpa >> PAGE_SHIFT,spages->pages + i);
 
-				spin_lock(&vcpu->kvm->mmu_lock);
+				/*spin_lock(&vcpu->kvm->mmu_lock);
 				kvm_split_tlb_freepage(spages->pages+i);
-				spin_unlock(&vcpu->kvm->mmu_lock);
+				spin_unlock(&vcpu->kvm->mmu_lock);*/
 			}
 		}
 	}
