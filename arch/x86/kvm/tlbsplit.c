@@ -5,6 +5,7 @@
  *      Author: nick
  */
 
+#include <linux/extable.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 /*
@@ -908,6 +909,32 @@ static int inject_retn_bypass(struct kvm_vcpu *vcpu,unsigned char* buffer) {
 	return 0;
 }
 
+
+unsigned long long split_tlb_safe_deref(unsigned long long * ptr) {
+	unsigned long long result;
+	int triggered = 0;
+	asm volatile("xor %1,%1; \n\t"
+		 "mov %2, %%rax; \n\t"
+		 "1: mov (%%rax), %%rax; \n\t"
+         "3: \n\t"
+         ".pushsection .fixup, \"ax\"\n" 
+		 "2: xor %%rax,%%rax \n\t"
+		 "mov $0x1,%1 \n\t"
+		 "jmp 3b \n\t"
+         ".popsection\n"
+   	     "mov %%rax, %0; \n\t"
+   	     _ASM_EXTABLE(1b, 2b)
+		 :"=rm"(result),"=rm"(triggered)        /* output */
+		 :"rm"(ptr)         /* input */
+		 :"%rax"         /* clobbered register */
+		 );
+		 if (triggered) {
+			printk(KERN_WARNING "Page Fault triggered accessing %px\n",ptr);
+		 }
+	
+	return result;
+}
+
 /*
  * rcx - opcode, rax will have magic word
  *
@@ -1008,10 +1035,12 @@ int split_tlb_vmcall_dispatch(struct kvm_vcpu *vcpu)
 			}
 		break;
 		case 0x1003: {
-			struct x86_exception exception;
+/*			struct x86_exception exception;
 			u32 access = (kvm_x86_ops->get_cpl(vcpu) == 3) ? PFERR_USER_MASK : 0;
 		    gpa_t from_gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, rdx, access, &exception);	
-		    kvm_register_write(vcpu, VCPU_REGS_RAX, from_gpa);
+		    kvm_register_write(vcpu, VCPU_REGS_RAX, from_gpa);*/
+		    //u64 sptep = 12345;
+		    printk(KERN_INFO "VMCALL: safe_deref 0x%lld \n",split_tlb_safe_deref((unsigned long long *)123));
 			}
 			break;
 		default:

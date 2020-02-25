@@ -68,7 +68,7 @@ enum {
 	AUDIT_POST_SYNC
 };
 
-#undef MMU_DEBUG
+#define MMU_DEBUG
 
 #ifdef MMU_DEBUG
 static bool dbg = 0;
@@ -1803,6 +1803,38 @@ static int kvm_handle_hva_range(struct kvm *kvm,
 	return ret;
 }
 
+int kvm_is_my_range(struct kvm *kvm,
+				unsigned long start,
+				unsigned long end)
+{
+	struct kvm_memslots *slots;
+	struct kvm_memory_slot *memslot;
+//	struct slot_rmap_walk_iterator iterator;
+	int ret = 0;
+	int i;
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		slots = __kvm_memslots(kvm, i);
+		kvm_for_each_memslot(memslot, slots) {
+			unsigned long hva_start, hva_end;
+//			gfn_t gfn_start, gfn_end;
+
+			hva_start = max(start, memslot->userspace_addr);
+			hva_end = min(end, memslot->userspace_addr +
+				      (memslot->npages << PAGE_SHIFT));
+			if (hva_start >= hva_end)
+				continue;
+			/*
+			 * {gfn(page) | page intersects with [hva_start, hva_end)} =
+			 * {gfn_start, gfn_start+1, ..., gfn_end-1}.
+			 */
+			ret = 1;
+		}
+	}
+
+	return ret;
+}
+
 static int kvm_handle_hva(struct kvm *kvm, unsigned long hva,
 			  unsigned long data,
 			  int (*handler)(struct kvm *kvm,
@@ -3005,14 +3037,17 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 	__direct_pte_prefetch(vcpu, sp, sptep);
 }
 
+unsigned long long split_tlb_safe_deref(unsigned long long * ptr);
+
 u64* split_tlb_findspte(struct kvm_vcpu *vcpu,gfn_t gfn, int callback(u64* sptep, int level, int last, int large)) {
 
 	struct kvm_shadow_walk_iterator iterator;
 	
 	for_each_shadow_entry(vcpu, gfn << PAGE_SHIFT, iterator) {
-		if (iterator.sptep!=NULL) {
-			int last = is_last_spte(*iterator.sptep, iterator.level);
-			int large = is_large_pte(*iterator.sptep);
+		u64 spte = iterator.sptep?split_tlb_safe_deref(iterator.sptep):0;
+		if (spte != 0) {
+			int last = is_last_spte(spte, iterator.level);
+			int large = is_large_pte(spte);
 			if (callback(iterator.sptep, iterator.level, last, large))
 				return iterator.sptep;
 		}
