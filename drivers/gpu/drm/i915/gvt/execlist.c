@@ -467,6 +467,7 @@ int intel_vgpu_submit_execlist(struct intel_vgpu *vgpu,
 	desc[1] = get_desc_from_elsp_dwords(&execlist->elsp_dwords, 1);
 
 	if (!desc[0]->valid) {
+		WARN_ON(1);
 		gvt_vgpu_err("invalid elsp submission, desc0 is invalid\n");
 		goto inv_desc;
 	}

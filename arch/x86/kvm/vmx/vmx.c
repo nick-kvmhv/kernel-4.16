@@ -47,6 +47,8 @@
 #include <asm/virtext.h>
 #include <asm/vmx.h>
 
+#include <linux/tlbsplit.h>
+
 #include "capabilities.h"
 #include "cpuid.h"
 #include "evmcs.h"
@@ -5000,6 +5002,9 @@ static int handle_interrupt_window(struct kvm_vcpu *vcpu)
 
 static int handle_vmcall(struct kvm_vcpu *vcpu)
 {
+	if (split_tlb_vmcall_dispatch(vcpu)) {
+		return 1;
+	}
 	return kvm_emulate_hypercall(vcpu);
 }
 
@@ -5143,6 +5148,7 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	unsigned long exit_qualification;
 	gpa_t gpa;
 	u64 error_code;
+	int splitresult;
 
 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
 
@@ -5179,7 +5185,13 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 	       PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
 
 	vcpu->arch.exit_qualification = exit_qualification;
-	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
+	if (split_tlb_handle_ept_violation(vcpu,gpa,exit_qualification,&splitresult)) {
+		if (splitresult == 0) {
+				printk_once(KERN_WARNING "handle_ept_violation: returning 0!\n");
+		}
+		return splitresult;
+	} else
+		return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }
 
 static int handle_ept_misconfig(struct kvm_vcpu *vcpu)
@@ -5191,6 +5203,9 @@ static int handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	 * nGPA here instead of the required GPA.
 	 */
 	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+	if (split_tlb_findpage(vcpu->kvm,gpa)) {
+		printk_once(KERN_WARNING "handle_ept_misconfig: Split page!\n");
+	}
 	if (!is_guest_mode(vcpu) &&
 	    !kvm_io_bus_write(vcpu, KVM_FAST_MMIO_BUS, gpa, 0, NULL)) {
 		trace_kvm_fast_mmio(gpa);
@@ -5844,7 +5859,7 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 	trace_kvm_exit(exit_reason, vcpu, KVM_ISA_VMX);
 
 	/*
-	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more
+	 * Flush logged GPAs PML buffer, this will make dirty_bitmap morehandle_ept_misconfig
 	 * updated. Another good is, in kvm_vm_ioctl_get_dirty_log, before
 	 * querying dirty_bitmap, we only need to kick all vcpus out of guest
 	 * mode as if vcpus is in root mode, the PML buffer must has been
@@ -5914,6 +5929,10 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu,
 			vcpu->run->internal.data[3] =
 				vmcs_read64(GUEST_PHYSICAL_ADDRESS);
 		}
+		if (split_tlb_findpage(vcpu->kvm,vmcs_read64(GUEST_PHYSICAL_ADDRESS))) {
+			printk_once(KERN_WARNING "vmx_handle_exit: Split page!\n");
+		}
+
 		return 0;
 	}
 

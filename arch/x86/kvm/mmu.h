@@ -226,5 +226,6 @@ int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
 
 int kvm_mmu_post_init_vm(struct kvm *kvm);
 void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
+u64* split_tlb_findspte(struct kvm_vcpu *vcpu,gfn_t gfn,int callback(u64* sptep, int level, int last, int large)); //splittlb
 
 #endif

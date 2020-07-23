@@ -6766,6 +6766,8 @@ static bool is_vmware_backdoor_opcode(struct x86_emulate_ctxt *ctxt)
 	return false;
 }
 
+void tlbsplit_emulation_log(char* format, ...);
+
 int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 			    int emulation_type, void *insn, int insn_len)
 {
@@ -6858,6 +6860,8 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		vcpu->arch.emulate_regs_need_sync_from_vcpu = false;
 		emulator_invalidate_register_cache(ctxt);
 	}
+	
+	tlbsplit_emulation_log("tblsemul:pos1");
 
 restart:
 	if (emulation_type & EMULTYPE_PF) {
@@ -6875,6 +6879,8 @@ restart:
 	}
 
 	r = x86_emulate_insn(ctxt);
+
+	tlbsplit_emulation_log("tblsemul:pos2 r=%d",r);
 
 	if (r == EMULATION_INTERCEPTED)
 		return 1;

@@ -711,6 +711,9 @@ static struct kvm *kvm_create_vm(unsigned long type)
 		rcu_assign_pointer(kvm->memslots[i], slots);
 	}
 
+	if (!tlb_split_init(kvm))
+		goto out_err_no_srcu;
+
 	for (i = 0; i < KVM_NR_BUSES; i++) {
 		rcu_assign_pointer(kvm->buses[i],
 			kzalloc(sizeof(struct kvm_io_bus), GFP_KERNEL_ACCOUNT));
@@ -816,6 +819,8 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	kvm_destroy_devices(kvm);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 		kvm_free_memslots(kvm, __kvm_memslots(kvm, i));
+	kvm_split_tlb_deactivateall(kvm); //splittbl	
+	
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	cleanup_srcu_struct(&kvm->srcu);
 	kvm_arch_free_vm(kvm);
@@ -4573,6 +4578,8 @@ static void kvm_init_debug(void)
 				    kvm_debugfs_dir, (void *)(long)p->offset,
 				    stat_fops[p->kind]);
 	}
+	split_init_debugfs();
+
 }
 
 static int kvm_suspend(void)
@@ -4775,6 +4782,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
 
 void kvm_exit(void)
 {
+	split_shutdown_debugfs(); //splittlb
 	debugfs_remove_recursive(kvm_debugfs_dir);
 	misc_deregister(&kvm_dev);
 	kmem_cache_destroy(kvm_vcpu_cache);
